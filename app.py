@@ -1,6 +1,6 @@
 import time
 import os
-import base64
+import requests
 from flask import Flask, request, jsonify, send_file
 from google import genai
 from io import BytesIO
@@ -19,26 +19,26 @@ def generate_video():
         data = request.json
 
         prompt = data.get("prompt")
-        image_base64 = data.get("image")
+        image_url = data.get("image_url")
 
-        if not prompt or not image_base64:
-            return jsonify({"error": "Missing prompt or image"}), 400
+        if not prompt or not image_url:
+            return jsonify({"error": "Missing prompt or image_url"}), 400
 
-        # ✅ Remove base64 prefix if present
-        if "base64," in image_base64:
-            image_base64 = image_base64.split("base64,")[1]
+        # 🔥 1. Download image from URL
+        img_response = requests.get(image_url)
+        if img_response.status_code != 200:
+            return jsonify({"error": "Failed to download image"}), 400
 
-        # ✅ Convert base64 → bytes
-        image_bytes = base64.b64decode(image_base64)
+        image_bytes = img_response.content
 
-        # 🎬 Generate video (NO wrapper!)
+        # 🎬 2. Generate video using Veo
         operation = client.models.generate_videos(
             model="veo-3.1-generate-preview",
             prompt=prompt,
             image=image_bytes,
         )
 
-        # ⏳ Wait for completion
+        # ⏳ 3. Wait for completion
         while not operation.done:
             print("Waiting for video...")
             time.sleep(10)
@@ -46,7 +46,7 @@ def generate_video():
 
         video = operation.response.generated_videos[0]
 
-        # 📥 Download video
+        # 📥 4. Download video
         file_data = client.files.download(file=video.video)
 
         return send_file(
