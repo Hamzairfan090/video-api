@@ -1,12 +1,13 @@
 import time
-import base64
 import os
 from flask import Flask, request, jsonify, send_file
 from google import genai
 from io import BytesIO
-from PIL import Image
+import base64
 
 app = Flask(__name__)
+
+# Initialize client with API key
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 @app.route("/")
@@ -20,27 +21,34 @@ def generate_video():
 
         prompt = data.get("prompt")
         image_base64 = data.get("image")
+        mime_type = data.get("mimeType", "image/jpeg")  # default jpeg
 
         if not prompt or not image_base64:
             return jsonify({"error": "Missing prompt or image"}), 400
 
-        # base64 → image
-        image_bytes = base64.b64decode(image_base64)
-        image = Image.open(BytesIO(image_bytes))
+        # 🔥 Remove base64 prefix if present
+        if "base64," in image_base64:
+            image_base64 = image_base64.split("base64,")[1]
 
-        # generate video
+        # ✅ Generate video using Veo
         operation = client.models.generate_videos(
             model="veo-3.1-generate-preview",
             prompt=prompt,
-            image=image,
+            image={
+                "bytesBase64Encoded": image_base64,
+                "mimeType": mime_type
+            },
         )
 
-        # wait
+        # ⏳ Wait until video is ready
         while not operation.done:
+            print("Waiting for video...")
             time.sleep(10)
             operation = client.operations.get(operation)
 
         video = operation.response.generated_videos[0]
+
+        # 📥 Download video
         file_data = client.files.download(file=video.video)
 
         return send_file(
@@ -51,4 +59,9 @@ def generate_video():
         )
 
     except Exception as e:
+        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=3000)
