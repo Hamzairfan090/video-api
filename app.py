@@ -31,20 +31,14 @@ def generate_video():
         # ✅ Convert base64 → bytes
         image_bytes = base64.b64decode(image_base64)
 
-        # ✅ Wrap image correctly for SDK
-        image = genai.types.Image(
-            data=image_bytes,
-            mime_type="image/jpeg"   # change if png
-        )
-
-        # 🎬 Generate video
+        # 🎬 Generate video (NO wrapper!)
         operation = client.models.generate_videos(
             model="veo-3.1-generate-preview",
             prompt=prompt,
-            image=image,
+            image=image_bytes,
         )
 
-        # ⏳ Wait
+        # ⏳ Wait for completion
         while not operation.done:
             print("Waiting for video...")
             time.sleep(10)
@@ -52,7 +46,7 @@ def generate_video():
 
         video = operation.response.generated_videos[0]
 
-        # 📥 Download
+        # 📥 Download video
         file_data = client.files.download(file=video.video)
 
         return send_file(
