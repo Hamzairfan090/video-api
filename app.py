@@ -2,6 +2,8 @@ import time
 import os
 import requests
 import uuid
+import tempfile
+import threading
 from flask import Flask, request, jsonify, send_file
 from google import genai
 from io import BytesIO
@@ -10,7 +12,7 @@ app = Flask(__name__)
 
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# store jobs in memory
+# in-memory job store
 jobs = {}
 
 @app.route("/")
@@ -40,38 +42,43 @@ def generate_video():
             "video": None
         }
 
-        # run background
-        def process():
+        # =========================
+        # BACKGROUND PROCESS
+        # =========================
+        def process_video():
             try:
                 jobs[job_id]["status"] = "processing"
 
-                # 1. download image
+                # 1. Download image
                 img = requests.get(image_url)
                 if img.status_code != 200:
                     raise Exception("Image download failed")
 
                 image_bytes = img.content
 
-                # 2. upload image to Google (FIXED)
-                uploaded_file = client.files.upload(
-                    file=("image.jpg", BytesIO(image_bytes), "image/jpeg")
-                )
+                # 2. Save temp file (IMPORTANT FIX)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    tmp.write(image_bytes)
+                    tmp_path = tmp.name
 
-                # 3. generate video
+                # 3. Upload image correctly
+                uploaded_file = client.files.upload(file=tmp_path)
+
+                # 4. Generate video
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
                     image=uploaded_file.name
                 )
 
-                # 4. wait
+                # 5. Wait for completion
                 while not operation.done:
                     time.sleep(10)
                     operation = client.operations.get(operation)
 
                 video = operation.response.generated_videos[0]
 
-                # 5. download video
+                # 6. Download video
                 file_data = client.files.download(file=video.video)
 
                 jobs[job_id]["status"] = "completed"
@@ -82,8 +89,7 @@ def generate_video():
                 jobs[job_id]["error"] = str(e)
                 print("ERROR:", str(e))
 
-        import threading
-        threading.Thread(target=process).start()
+        threading.Thread(target=process_video).start()
 
         return jsonify({
             "job_id": job_id,
@@ -95,7 +101,7 @@ def generate_video():
 
 
 # =========================
-# STATUS CHECK
+# STATUS API
 # =========================
 @app.route("/status/<job_id>", methods=["GET"])
 def status(job_id):
@@ -108,7 +114,7 @@ def status(job_id):
 
 
 # =========================
-# DOWNLOAD VIDEO
+# DOWNLOAD API
 # =========================
 @app.route("/download/<job_id>", methods=["GET"])
 def download(job_id):
