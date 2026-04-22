@@ -2,7 +2,7 @@ import time
 import os
 import requests
 import uuid
-import base64
+import tempfile
 import threading
 from flask import Flask, request, jsonify, send_file
 from google import genai
@@ -46,29 +46,28 @@ def generate_video():
                 jobs[job_id]["status"] = "processing"
 
                 # 1. download image
-                img = requests.get(image_url)
+                img = requests.get(image_url, timeout=30)
                 if img.status_code != 200:
                     raise Exception("Image download failed")
 
                 image_bytes = img.content
 
-                # 2. IMPORTANT FIX → base64 encode
-                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                # 2. save temp file (SAFE METHOD)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    tmp.write(image_bytes)
+                    tmp_path = tmp.name
 
-                # 3. REQUIRED FORMAT (THIS FIXES YOUR ERROR)
-                image_input = {
-                    "bytesBase64Encoded": image_base64,
-                    "mimeType": "image/jpeg"
-                }
+                # 3. upload file path (MOST STABLE METHOD)
+                uploaded_file = client.files.upload(file=tmp_path)
 
                 # 4. generate video
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
-                    image=image_input
+                    image=uploaded_file
                 )
 
-                # 5. wait for completion
+                # 5. wait
                 while not operation.done:
                     time.sleep(10)
                     operation = client.operations.get(operation)
@@ -103,8 +102,10 @@ def generate_video():
 @app.route("/status/<job_id>")
 def status(job_id):
     job = jobs.get(job_id)
+
     if not job:
         return jsonify({"error": "Invalid job id"}), 404
+
     return jsonify(job)
 
 
