@@ -2,10 +2,10 @@ import time
 import os
 import requests
 import uuid
-import base64
 import threading
 from flask import Flask, request, jsonify, send_file
 from google import genai
+from google.genai import types
 from io import BytesIO
 
 app = Flask(__name__)
@@ -52,30 +52,27 @@ def generate_video():
 
                 image_bytes = img.content
 
-                # 2. convert to base64 (IMPORTANT FIX)
-                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                # 2. ✅ CORRECT FORMAT (IMPORTANT FIX)
+                image_part = types.Part.from_data(
+                    data=image_bytes,
+                    mime_type="image/jpeg"
+                )
 
-                # 3. correct image format for Veo
-                image_input = {
-                    "bytesBase64Encoded": image_base64,
-                    "mimeType": "image/jpeg"
-                }
-
-                # 4. generate video
+                # 3. generate video
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
-                    image=image_input
+                    image=image_part
                 )
 
-                # 5. wait
+                # 4. wait
                 while not operation.done:
                     time.sleep(10)
                     operation = client.operations.get(operation)
 
                 video = operation.response.generated_videos[0]
 
-                # 6. download
+                # 5. download video
                 file_data = client.files.download(file=video.video)
 
                 jobs[job_id]["status"] = "completed"
