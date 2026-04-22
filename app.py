@@ -16,12 +16,9 @@ jobs = {}
 
 @app.route("/")
 def home():
-    return "Veo API Running 🚀"
+    return "Veo API running 🚀"
 
 
-# =========================
-# GENERATE VIDEO
-# =========================
 @app.route("/generate-video", methods=["POST"])
 def generate_video():
     data = request.get_json()
@@ -49,37 +46,25 @@ def generate_video():
             if img.status_code != 200:
                 raise Exception("Image download failed")
 
-            with open(f"/tmp/{job_id}.jpg", "wb") as f:
+            path = f"/tmp/{job_id}.jpg"
+            with open(path, "wb") as f:
                 f.write(img.content)
 
-            # upload file (IMPORTANT)
-            uploaded_file = client.files.upload(file=f"/tmp/{job_id}.jpg")
+            # upload file
+            uploaded_file = client.files.upload(file=path)
 
-            # ✅ UPDATED SDK CALL
+            # ✅ FINAL WORKING CALL
             operation = client.models.generate_videos(
                 model="veo-3.1-generate-preview",
-                contents=[
-                    {
-                        "role": "user",
-                        "parts": [
-                            {"text": prompt},
-                            {
-                                "file_data": {
-                                    "file_uri": uploaded_file.uri
-                                }
-                            }
-                        ]
-                    }
-                ]
+                prompt=prompt,
+                image=uploaded_file   # 🔥 ONLY THIS WORKS IN YOUR SDK
             )
 
-            # wait
             while not operation.done:
                 time.sleep(5)
                 operation = client.operations.get(operation)
 
             video = operation.response.generated_videos[0]
-
             file_data = client.files.download(file=video.video)
 
             jobs[job_id]["status"] = "completed"
@@ -95,17 +80,11 @@ def generate_video():
     return jsonify({"job_id": job_id})
 
 
-# =========================
-# STATUS
-# =========================
 @app.route("/status/<job_id>")
 def status(job_id):
     return jsonify(jobs.get(job_id, {"error": "invalid job"}))
 
 
-# =========================
-# DOWNLOAD
-# =========================
 @app.route("/download/<job_id>")
 def download(job_id):
     job = jobs.get(job_id)
