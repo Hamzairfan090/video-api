@@ -72,7 +72,7 @@ def generate_video():
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
                     image={
-                        "file": uploaded_file.name   # ✅ IMPORTANT FIX
+                        "file": uploaded_file  # ✅ IMPORTANT FIX
                     }
                 )
 
