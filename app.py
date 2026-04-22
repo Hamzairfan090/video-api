@@ -18,11 +18,11 @@ jobs = {}
 
 @app.route("/")
 def home():
-    return "Veo API is running 🚀"
+    return "Veo API running 🚀"
 
 
 # =========================
-# START VIDEO GENERATION
+# GENERATE VIDEO
 # =========================
 @app.route("/generate-video", methods=["POST"])
 def generate_video():
@@ -62,18 +62,27 @@ def generate_video():
                 # 🔹 STEP 3: Upload to Gemini
                 uploaded_file = client.files.upload(file=tmp_path)
 
-                if not uploaded_file or not uploaded_file.name:
+                if not uploaded_file or not uploaded_file.uri:
                     raise Exception("File upload failed")
 
-                print("Uploaded file:", uploaded_file.name)
+                print("Uploaded file URI:", uploaded_file.uri)
 
-                # 🔹 STEP 4: Generate video (FIX APPLIED HERE ✅)
+                # 🔹 STEP 4: Generate video (FINAL FIX ✅)
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
-                    prompt=prompt,
-                    image={
-                        "file": uploaded_file  # ✅ IMPORTANT FIX
-                    }
+                    contents=[
+                        {
+                            "role": "user",
+                            "parts": [
+                                {"text": prompt},
+                                {
+                                    "file_data": {
+                                        "file_uri": uploaded_file.uri
+                                    }
+                                }
+                            ]
+                        }
+                    ]
                 )
 
                 # 🔹 STEP 5: Wait for completion
@@ -98,7 +107,6 @@ def generate_video():
                 jobs[job_id]["error"] = str(e)
                 print("ERROR:", str(e))
 
-        # Run in background
         threading.Thread(target=process_video).start()
 
         return jsonify({
@@ -111,7 +119,7 @@ def generate_video():
 
 
 # =========================
-# STATUS API
+# STATUS CHECK
 # =========================
 @app.route("/status/<job_id>", methods=["GET"])
 def status(job_id):
@@ -124,7 +132,7 @@ def status(job_id):
 
 
 # =========================
-# DOWNLOAD API
+# DOWNLOAD VIDEO
 # =========================
 @app.route("/download/<job_id>", methods=["GET"])
 def download(job_id):
@@ -147,5 +155,8 @@ def download(job_id):
     )
 
 
+# =========================
+# RUN SERVER
+# =========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
