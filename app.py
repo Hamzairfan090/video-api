@@ -5,7 +5,6 @@ import uuid
 import threading
 from flask import Flask, request, jsonify, send_file
 from google import genai
-from google.genai import types
 from io import BytesIO
 
 app = Flask(__name__)
@@ -52,17 +51,16 @@ def generate_video():
 
                 image_bytes = img.content
 
-                # 2. ✅ CORRECT FORMAT (IMPORTANT FIX)
-                image_part = types.Part.from_data(
-                    data=image_bytes,
-                    mime_type="image/jpeg"
+                # 2. upload image (CORRECT SIMPLE WAY)
+                uploaded_file = client.files.upload(
+                    file=("image.jpg", image_bytes, "image/jpeg")
                 )
 
                 # 3. generate video
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
-                    image=image_part
+                    image=uploaded_file   # ✅ IMPORTANT: full object
                 )
 
                 # 4. wait
