@@ -11,18 +11,13 @@ app = Flask(__name__)
 
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Job storage
 jobs = {}
-
 
 @app.route("/")
 def home():
     return "Veo API running 🚀"
 
 
-# =========================
-# GENERATE VIDEO
-# =========================
 @app.route("/generate-video", methods=["POST"])
 def generate_video():
     try:
@@ -46,35 +41,28 @@ def generate_video():
             try:
                 jobs[job_id]["status"] = "processing"
 
-                # 🔹 STEP 1: Download image
-                response = requests.get(image_url)
-                if response.status_code != 200:
+                # Download image
+                res = requests.get(image_url)
+                if res.status_code != 200:
                     raise Exception("Image download failed")
 
-                image_bytes = response.content
+                image_bytes = res.content
 
-                # 🔹 STEP 2: Generate video (FINAL FIX ✅)
+                # ✅ FINAL WORKING CALL
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
-                    image={
-                        "bytes": image_bytes,
-                        "mime_type": "image/jpeg"
-                    }
+                    image_bytes=image_bytes,
+                    image_mime_type="image/jpeg"
                 )
 
-                # 🔹 STEP 3: Wait for completion
+                # Wait
                 while not operation.done:
-                    print("Processing...")
                     time.sleep(10)
                     operation = client.operations.get(operation)
 
-                if not operation.response.generated_videos:
-                    raise Exception("No video generated")
-
                 video_obj = operation.response.generated_videos[0]
 
-                # 🔹 STEP 4: Download video
                 file_data = client.files.download(file=video_obj.video)
 
                 jobs[job_id]["status"] = "completed"
@@ -85,7 +73,6 @@ def generate_video():
                 jobs[job_id]["error"] = str(e)
                 print("ERROR:", str(e))
 
-        # Run background thread
         threading.Thread(target=process_video).start()
 
         return jsonify({
@@ -97,34 +84,17 @@ def generate_video():
         return jsonify({"error": str(e)}), 500
 
 
-# =========================
-# STATUS API
-# =========================
-@app.route("/status/<job_id>", methods=["GET"])
+@app.route("/status/<job_id>")
 def status(job_id):
-    job = jobs.get(job_id)
-
-    if not job:
-        return jsonify({"error": "Invalid job id"}), 404
-
-    return jsonify(job)
+    return jsonify(jobs.get(job_id, {"error": "Invalid job id"}))
 
 
-# =========================
-# DOWNLOAD API
-# =========================
-@app.route("/download/<job_id>", methods=["GET"])
+@app.route("/download/<job_id>")
 def download(job_id):
     job = jobs.get(job_id)
 
-    if not job:
-        return jsonify({"error": "Invalid job id"}), 404
-
-    if job["status"] != "completed":
-        return jsonify({
-            "error": "Video not ready",
-            "status": job["status"]
-        }), 400
+    if not job or job["status"] != "completed":
+        return jsonify({"error": "Not ready"}), 400
 
     return send_file(
         BytesIO(job["video"]),
@@ -134,8 +104,5 @@ def download(job_id):
     )
 
 
-# =========================
-# RUN SERVER
-# =========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)
