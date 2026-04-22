@@ -12,12 +12,13 @@ app = Flask(__name__)
 
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# in-memory job store
+# In-memory job store
 jobs = {}
+
 
 @app.route("/")
 def home():
-    return "Veo API is running"
+    return "Veo API is running 🚀"
 
 
 # =========================
@@ -42,44 +43,52 @@ def generate_video():
             "video": None
         }
 
-        # =========================
-        # BACKGROUND PROCESS
-        # =========================
         def process_video():
             try:
                 jobs[job_id]["status"] = "processing"
 
-                # 1. Download image
-                img = requests.get(image_url)
-                if img.status_code != 200:
+                # 🔹 STEP 1: Download image
+                response = requests.get(image_url)
+                if response.status_code != 200:
                     raise Exception("Image download failed")
 
-                image_bytes = img.content
+                image_bytes = response.content
 
-                # 2. Save temp file (IMPORTANT FIX)
+                # 🔹 STEP 2: Save temp file
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                     tmp.write(image_bytes)
                     tmp_path = tmp.name
 
-                # 3. Upload image correctly
+                # 🔹 STEP 3: Upload to Gemini
                 uploaded_file = client.files.upload(file=tmp_path)
 
-                # 4. Generate video
+                if not uploaded_file or not uploaded_file.name:
+                    raise Exception("File upload failed")
+
+                print("Uploaded file:", uploaded_file.name)
+
+                # 🔹 STEP 4: Generate video (FIX APPLIED HERE ✅)
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
-                    image=uploaded_file.name
+                    image={
+                        "file": uploaded_file.name   # ✅ IMPORTANT FIX
+                    }
                 )
 
-                # 5. Wait for completion
+                # 🔹 STEP 5: Wait for completion
                 while not operation.done:
+                    print("Processing...")
                     time.sleep(10)
                     operation = client.operations.get(operation)
 
-                video = operation.response.generated_videos[0]
+                if not operation.response.generated_videos:
+                    raise Exception("No video generated")
 
-                # 6. Download video
-                file_data = client.files.download(file=video.video)
+                video_obj = operation.response.generated_videos[0]
+
+                # 🔹 STEP 6: Download video
+                file_data = client.files.download(file=video_obj.video)
 
                 jobs[job_id]["status"] = "completed"
                 jobs[job_id]["video"] = file_data
@@ -89,6 +98,7 @@ def generate_video():
                 jobs[job_id]["error"] = str(e)
                 print("ERROR:", str(e))
 
+        # Run in background
         threading.Thread(target=process_video).start()
 
         return jsonify({
