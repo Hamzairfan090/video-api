@@ -16,38 +16,26 @@ def home():
 @app.route("/generate-video", methods=["POST"])
 def generate_video():
     try:
-        prompt = None
-        image_bytes = None
+        data = request.get_json()
 
-        # 🔥 1. Handle JSON (image_url)
-        if request.content_type and "application/json" in request.content_type:
-            data = request.get_json()
+        prompt = data.get("prompt")
+        image_url = data.get("image_url")
 
-            prompt = data.get("prompt")
-            image_url = data.get("image_url")
+        if not prompt or not image_url:
+            return jsonify({"error": "Missing prompt or image_url"}), 400
 
-            if not prompt or not image_url:
-                return jsonify({"error": "Missing prompt or image_url"}), 400
+        # 🔥 1. Download image
+        img_response = requests.get(image_url)
+        if img_response.status_code != 200:
+            return jsonify({"error": "Failed to download image"}), 400
 
-            # Download image
-            img_response = requests.get(image_url)
-            if img_response.status_code != 200:
-                return jsonify({"error": "Failed to download image"}), 400
+        image_bytes = img_response.content
 
-            image_bytes = img_response.content
-
-        # 🔥 2. Handle Form-Data (direct file upload)
-        elif request.content_type and "multipart/form-data" in request.content_type:
-            prompt = request.form.get("prompt")
-            image = request.files.get("image")
-
-            if not prompt or not image:
-                return jsonify({"error": "Missing prompt or image file"}), 400
-
-            image_bytes = image.read()
-
-        else:
-            return jsonify({"error": "Unsupported content type"}), 400
+        # 🔥 2. FIX: wrap image properly
+        image_input = {
+            "mime_type": "image/jpeg",   # change if png
+            "data": image_bytes
+        }
 
         print("PROMPT:", prompt)
         print("Image size:", len(image_bytes))
@@ -56,10 +44,10 @@ def generate_video():
         operation = client.models.generate_videos(
             model="veo-3.1-generate-preview",
             prompt=prompt,
-            image=image_bytes,
+            image=image_input   # ✅ FIXED HERE
         )
 
-        # ⏳ 4. Wait for completion
+        # ⏳ 4. Wait
         while not operation.done:
             print("Waiting for video...")
             time.sleep(10)
