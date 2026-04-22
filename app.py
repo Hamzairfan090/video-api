@@ -2,6 +2,7 @@ import time
 import os
 import requests
 import uuid
+import tempfile
 import threading
 from flask import Flask, request, jsonify, send_file
 from google import genai
@@ -51,26 +52,29 @@ def generate_video():
 
                 image_bytes = img.content
 
-                # 2. upload image (CORRECT SIMPLE WAY)
-                uploaded_file = client.files.upload(
-                    file=("image.jpg", image_bytes, "image/jpeg")
-                )
+                # 2. IMPORTANT FIX → create real file path
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    tmp.write(image_bytes)
+                    tmp_path = tmp.name
 
-                # 3. generate video
+                # 3. upload (ONLY FILE PATH)
+                uploaded_file = client.files.upload(file=tmp_path)
+
+                # 4. generate video
                 operation = client.models.generate_videos(
                     model="veo-3.1-generate-preview",
                     prompt=prompt,
-                    image=uploaded_file   # ✅ IMPORTANT: full object
+                    image=uploaded_file   # correct object
                 )
 
-                # 4. wait
+                # 5. wait
                 while not operation.done:
                     time.sleep(10)
                     operation = client.operations.get(operation)
 
                 video = operation.response.generated_videos[0]
 
-                # 5. download video
+                # 6. download video
                 file_data = client.files.download(file=video.video)
 
                 jobs[job_id]["status"] = "completed"
