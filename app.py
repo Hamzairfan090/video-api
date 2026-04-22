@@ -1,6 +1,7 @@
 import os
 import uuid
 import time
+import base64
 import threading
 import requests
 from flask import Flask, request, jsonify, send_file
@@ -16,81 +17,117 @@ jobs = {}
 
 @app.route("/")
 def home():
-    return "Veo API running 🚀"
+    return "Veo API Running 🚀"
 
 
+# =========================
+# GENERATE VIDEO
+# =========================
 @app.route("/generate-video", methods=["POST"])
 def generate_video():
-    data = request.get_json()
+    try:
+        data = request.get_json()
 
-    prompt = data.get("prompt")
-    image_url = data.get("image_url")
+        prompt = data.get("prompt")
+        image_url = data.get("image_url")
 
-    if not prompt or not image_url:
-        return jsonify({"error": "Missing prompt or image_url"}), 400
+        if not prompt or not image_url:
+            return jsonify({"error": "Missing prompt or image_url"}), 400
 
-    job_id = str(uuid.uuid4())
+        job_id = str(uuid.uuid4())
 
-    jobs[job_id] = {
-        "status": "queued",
-        "error": None,
-        "video": None
-    }
+        jobs[job_id] = {
+            "status": "queued",
+            "error": None,
+            "video": None
+        }
 
-    def process():
-        try:
-            jobs[job_id]["status"] = "processing"
+        def process():
+            try:
+                jobs[job_id]["status"] = "processing"
 
-            # download image
-            img = requests.get(image_url)
-            if img.status_code != 200:
-                raise Exception("Image download failed")
+                # =========================
+                # STEP 1: Download image
+                # =========================
+                img = requests.get(image_url)
+                if img.status_code != 200:
+                    raise Exception("Image download failed")
 
-            path = f"/tmp/{job_id}.jpg"
-            with open(path, "wb") as f:
-                f.write(img.content)
+                image_bytes = img.content
 
-            # upload file
-            uploaded_file = client.files.upload(file=path)
+                # =========================
+                # STEP 2: Convert to Base64
+                # =========================
+                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-            # ✅ FINAL WORKING CALL
-            operation = client.models.generate_videos(
-                model="veo-3.1-generate-preview",
-                prompt=prompt,
-                image=uploaded_file   # 🔥 ONLY THIS WORKS IN YOUR SDK
-            )
+                # =========================
+                # STEP 3: Generate Video (FIXED)
+                # =========================
+                operation = client.models.generate_videos(
+                    model="veo-3.1-generate-preview",
+                    prompt=prompt,
+                    image={
+                        "bytesBase64Encoded": image_base64,
+                        "mimeType": "image/jpeg"
+                    }
+                )
 
-            while not operation.done:
-                time.sleep(5)
-                operation = client.operations.get(operation)
+                # =========================
+                # STEP 4: Wait for completion
+                # =========================
+                while not operation.done:
+                    time.sleep(5)
+                    operation = client.operations.get(operation)
 
-            video = operation.response.generated_videos[0]
-            file_data = client.files.download(file=video.video)
+                video_obj = operation.response.generated_videos[0]
 
-            jobs[job_id]["status"] = "completed"
-            jobs[job_id]["video"] = file_data
+                # =========================
+                # STEP 5: Download video
+                # =========================
+                file_data = client.files.download(file=video_obj.video)
 
-        except Exception as e:
-            jobs[job_id]["status"] = "failed"
-            jobs[job_id]["error"] = str(e)
-            print("ERROR:", str(e))
+                jobs[job_id]["status"] = "completed"
+                jobs[job_id]["video"] = file_data
 
-    threading.Thread(target=process).start()
+            except Exception as e:
+                jobs[job_id]["status"] = "failed"
+                jobs[job_id]["error"] = str(e)
+                print("ERROR:", str(e))
 
-    return jsonify({"job_id": job_id})
+        threading.Thread(target=process).start()
+
+        return jsonify({
+            "job_id": job_id,
+            "message": "Video generation started"
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
+# =========================
+# STATUS API
+# =========================
 @app.route("/status/<job_id>")
 def status(job_id):
-    return jsonify(jobs.get(job_id, {"error": "invalid job"}))
+    return jsonify(jobs.get(job_id, {"error": "Invalid job id"}))
 
 
+# =========================
+# DOWNLOAD API
+# =========================
 @app.route("/download/<job_id>")
 def download(job_id):
     job = jobs.get(job_id)
 
-    if not job or job["status"] != "completed":
-        return jsonify({"error": "not ready"}), 400
+    if not job:
+        return jsonify({"error": "Invalid job id"}), 404
+
+    if job["status"] != "completed":
+        return jsonify({
+            "error": "Video not ready",
+            "status": job["status"]
+        }), 400
 
     return send_file(
         BytesIO(job["video"]),
@@ -100,5 +137,8 @@ def download(job_id):
     )
 
 
+# =========================
+# RUN APP
+# =========================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)))
